@@ -1,0 +1,170 @@
+{
+  "name": "engraphis-memory",
+  "version": "0.1.0",
+  "description": "Replace the built-in markdown memory store with Engraphis — persistent, scoped, explainable memory for your coding agent (self-hosted server at ENGRAPHIS_URL). The built-in `memory` tool, auto-reflect, /remember & /forget, compaction extracts, and session priming all route to Engraphis. Ten extra tools expose Engraphis's query & curation surface (grounded recall, why/timeline, pin, correct, consolidate, link, record_event).",
+  "memory_provider": {
+    "script": "memory/provider.py",
+    "timeout_ms": 30000
+  },
+  "system_prompt": "## Memory: Engraphis\n\nYour long-term memory is backed by a self-hosted **Engraphis** server (persistent, scoped, bi-temporal, explainable). It replaces the markdown memory store.\n\n- The built-in **`memory`** tool stores and forgets durable facts via Engraphis. Use it (action `save`/`append`/`forget`/`list`) exactly as you would the markdown store — for durable facts, decisions, conventions, user preferences, and bug causes/fixes worth keeping across sessions. NOT for transient state or things already in the codebase.\n- **Session priming** is automatic: at session start, proactive recall injects \"what matters right now\" across all workspaces.\n- Memories are scoped: `workspace` scope → per-codebase (Engraphis workspace + repo basename); `global` scope → cross-codebase facts.\n- Conflicts resolve deterministically: an exact restatement reinforces; a same-subject update **supersedes** (closes, never deletes) the old one.\n\n### Extra Engraphis tools (when you need more than store/forget)\n\n- **engraphis_recall** — hybrid semantic + lexical search returning a LIST of matches with scores. Use before answering questions about past decisions/conventions.\n- **engraphis_recall_grounded** — a direct, cited ANSWER from memory, or an explicit **abstain** if evidence is insufficient. Use when you need an answer, not a list. Do NOT guess when it abstains.\n- **engraphis_why** — the current answer AND the facts it superseded (what changed and when). Use to explain why something is the way it is.\n- **engraphis_timeline** — bi-temporal history of a topic (oldest first). Use to trace how a fact evolved.\n- **engraphis_stats** — memory-bank overview (counts by type/workspace).\n- **engraphis_pin** — exempt a memory from decay/pruning (important conventions).\n- **engraphis_correct** — supersede a wrong memory with replacement content (keeps the supersession chain). Prefer over forget+remember when you have replacement content.\n- **engraphis_consolidate** — sleep-time distillation sweep (episodic→semantic); set dry_run=true to preview.\n- **engraphis_link** — connect two related memories a plain recall wouldn't surface as connected.\n- **engraphis_record_event** — lightweight episodic log entry (lower ceremony than `memory` for raw events to be consolidated later).\n\nIf the Engraphis server is unreachable, tools return a hint instead of crashing the turn; writes surface the error so you know memories aren't persisting.",
+  "tools": [
+    {
+      "name": "engraphis_recall",
+      "description": "Hybrid semantic + lexical + retention search over the memory bank. Returns a LIST of matching memories with scores. Use to find relevant past facts before answering or acting.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "What to look for (a question or topic)." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default' (ENGRAPHIS_WORKSPACE)." },
+          "repo": { "type": "string", "description": "Repo scope within the workspace. Defaults to the current directory name." },
+          "k": { "type": "number", "description": "Max results. Default 5.", "minimum": 1, "maximum": 50 }
+        },
+        "required": ["query"]
+      },
+      "script": "tools/recall.py",
+      "kind": "readonly",
+      "timeout_ms": 20000
+    },
+    {
+      "name": "engraphis_recall_grounded",
+      "description": "Get a direct ANSWER from memory, with [n] citations — or an explicit abstain if evidence is insufficient. Offline/deterministic (no LLM synthesis). Use when you need an answer, not a list.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "The question to answer from memory." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." },
+          "repo": { "type": "string", "description": "Repo scope within the workspace. Defaults to the current directory name." },
+          "k": { "type": "number", "description": "Max memories to retrieve. Default 8.", "minimum": 1, "maximum": 50 }
+        },
+        "required": ["query"]
+      },
+      "script": "tools/recall_grounded.py",
+      "kind": "readonly",
+      "timeout_ms": 25000
+    },
+    {
+      "name": "engraphis_why",
+      "description": "The current answer to a question AND the facts it superseded (what used to be true but changed). Use to explain why something is the way it is, including past decisions that were overturned.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": { "type": "string", "description": "The question to answer from memory." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." }
+        },
+        "required": ["question"]
+      },
+      "script": "tools/why.py",
+      "kind": "readonly",
+      "timeout_ms": 20000
+    },
+    {
+      "name": "engraphis_timeline",
+      "description": "Bi-temporal history of a topic: what was believed and when, oldest first. Use to trace how a fact evolved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string", "description": "Topic to trace." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." }
+        },
+        "required": ["topic"]
+      },
+      "script": "tools/timeline.py",
+      "kind": "readonly",
+      "timeout_ms": 20000
+    },
+    {
+      "name": "engraphis_stats",
+      "description": "Overview of the memory bank: total memories, breakdown by type, workspaces, sessions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string", "description": "Scope to a workspace, or omit for all." },
+          "scope": { "type": "string", "enum": ["workspace", "global"], "description": "Use 'global' to inspect cross-codebase memories." }
+        }
+      },
+      "script": "tools/stats.py",
+      "kind": "readonly",
+      "timeout_ms": 10000
+    },
+    {
+      "name": "engraphis_pin",
+      "description": "Pin a memory so it is exempt from automatic decay and pruning. Use for important conventions that must persist.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Memory id (from recall/remember)." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." }
+        },
+        "required": ["id"]
+      },
+      "script": "tools/pin.py",
+      "kind": "destructive",
+      "timeout_ms": 20000
+    },
+    {
+      "name": "engraphis_correct",
+      "description": "Supersede a memory with new content — the old version is closed (kept in history, never deleted) and the new content becomes current truth. Prefer this over forget+remember when you have replacement content, because it preserves the supersession chain (visible via engraphis_why / engraphis_timeline).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Memory id to correct (from recall/remember)." },
+          "content": { "type": "string", "description": "The new, corrected content." },
+          "reason": { "type": "string", "description": "Why it's being corrected." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." }
+        },
+        "required": ["id", "content"]
+      },
+      "script": "tools/correct.py",
+      "kind": "destructive",
+      "timeout_ms": 20000
+    },
+    {
+      "name": "engraphis_consolidate",
+      "description": "Run a sleep-time consolidation sweep: recurring episodic memories on the same subject are distilled into one durable semantic digest, and fully-decayed transient memories are archived. Use periodically to keep the memory bank lean. Set dry_run=true to preview without changing anything.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." },
+          "dry_run": { "type": "boolean", "description": "If true, preview only — nothing is modified. Default false." }
+        }
+      },
+      "script": "tools/consolidate.py",
+      "kind": "destructive",
+      "timeout_ms": 60000
+    },
+    {
+      "name": "engraphis_link",
+      "description": "Explicitly connect two related memories that a plain recall wouldn't surface as connected (e.g. a bug report and the memory describing the fix). Use when you notice two stored facts are related.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "string", "description": "First memory id." },
+          "b": { "type": "string", "description": "Second memory id." },
+          "relation": { "type": "string", "description": "Relationship label (e.g. 'fixes', 'causes', 'related'). Default: 'related'." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." }
+        },
+        "required": ["a", "b"]
+      },
+      "script": "tools/link.py",
+      "kind": "destructive",
+      "timeout_ms": 20000
+    },
+    {
+      "name": "engraphis_record_event",
+      "description": "Append a lightweight episodic log entry — lower ceremony than the `memory` tool, for raw events you may later want consolidated into a durable fact (e.g. 'tried X, it deadlocked'). Use the `memory` tool for crisp facts; use this for event logs that accumulate.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "description": "Event kind (e.g. 'attempt', 'error', 'observation', 'decision')." },
+          "content": { "type": "string", "description": "The event to log." },
+          "workspace": { "type": "string", "description": "Top-level scope. Default: 'default'." },
+          "repo": { "type": "string", "description": "Repo scope within the workspace. Defaults to the current directory name." }
+        },
+        "required": ["kind", "content"]
+      },
+      "script": "tools/record_event.py",
+      "kind": "destructive",
+      "timeout_ms": 20000
+    }
+  ]
+}
