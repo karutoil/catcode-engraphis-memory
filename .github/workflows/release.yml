@@ -1,0 +1,78 @@
+name: CI/CD
+
+# On every push to main: validate the plugin, then auto-cut a new
+# (patch-incremented) GitHub Release. On PRs to main: validate only.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write   # the release job creates tags + releases
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Validate plugin.json
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('plugin.json'))
+          assert d.get('name'), 'plugin.json: missing name'
+          assert d.get('version'), 'plugin.json: missing version'
+          assert d.get('memory_provider') or d.get('tools'), 'plugin.json: no memory_provider or tools'
+          print(f'plugin.json OK: {d["name"]} v{d["version"]} '
+                f'({len(d.get("tools", []))} tools, '
+                f'memory_provider={bool(d.get("memory_provider"))})')
+          PY
+
+      - name: Compile all scripts
+        run: python3 -m py_compile lib/engraphis.py memory/provider.py tools/*.py
+
+      - name: Smoke test (graceful degradation with the server down)
+        run: bash scripts/dry-run.sh
+
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    # Only cut a release on pushes to main (not on PRs).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + existing tags to compute the next version
+
+      - name: Compute next version (bump patch from the latest v* tag)
+        id: ver
+        run: |
+          set -euo pipefail
+          latest="$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            base="${latest#v}"
+            major="${base%%.*}"
+            rest="${base#*.}"
+            minor="${rest%%.*}"
+            patch="${rest##*.}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: ${latest:-<none>}"
+          echo "Next release: $next"
+
+      - name: Create GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          generateReleaseNotes: true
+          makeLatest: "true"
