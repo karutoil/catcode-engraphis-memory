@@ -131,16 +131,17 @@ All optional — a loopback single-user Engraphis needs none:
 ### From GitHub
 
 The repo is published at **<https://github.com/karutoil/catcode-engraphis-memory>**.
-The latest-release install works once a GitHub Release is tagged:
+A new release is **auto-generated on every push to `main`** (CI bumps the
+patch: `v0.1.0`, `v0.1.1`, …), so the latest source zip is always available:
 
 ```bash
 /plugin-install https://github.com/karutoil/catcode-engraphis-memory
-# pinned to a release tag:
+# pinned to a specific release tag:
 /plugin-install karutoil/catcode-engraphis-memory@v0.1.0
 ```
 
-> No Release yet? Until you tag one, install from a local clone instead
-> (see above) — the URL install downloads the latest Release source zip.
+See the [releases page](https://github.com/karutoil/catcode-engraphis-memory/releases)
+for available versions.
 
 > Only **one** `memory_provider` should be active at a time. Disable the
 > built-in markdown store by loading this plugin (the core skips the markdown
